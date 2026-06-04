@@ -1975,101 +1975,50 @@ def _postprocess_ocr_text(text):
 
 
 def _ocr_with_deepseek_vision(filepath, fid):
-    """OCR 最终回退：尝试用 AI 视觉模型识别图片文字"""
+    """百度在线OCR（免费、稳定、不占内存）"""
+    import os
+    import json
+    from aip import AipOcr
+    from flask import jsonify
+
+    db = get_db()
+
+    # 读取你在 Railway 填的三个密钥
+    APP_ID = os.getenv("123595386")
+    API_KEY = os.getenv("KbfEyMGsGhKDVEYB0VgHgag1")
+    SECRET_KEY = os.getenv("Pku9T9jyQI7wOUbPm2Ecl40M4uVms7Z0")
+
+    if not APP_ID or not API_KEY or not SECRET_KEY:
+        return jsonify({"error": "请先在 Railway 配置百度 OCR 密钥"}), 400
+
+    client = AipOcr(APP_ID, API_KEY, SECRET_KEY)
+
     try:
-        from PIL import Image
+        with open(filepath, "rb") as f:
+            image = f.read()
+    except:
+        return jsonify({"error": "图片读取失败"}), 400
 
-        # 读取图片并转为 base64
-        img = Image.open(filepath)
-        max_size = 2048
-        if max(img.size) > max_size:
-            ratio = max_size / max(img.size)
-            img = img.resize((int(img.size[0] * ratio), int(img.size[1] * ratio)), Image.LANCZOS)
+    # 调用百度高精度OCR
+    result = client.basicGeneral(image)
 
-        buffer = io.BytesIO()
-        img.save(buffer, format='PNG')
-        img_b64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+    if "words_result" not in result:
+        return jsonify({"error": "图片识别失败"}), 400
 
-        api_key, base_url = get_api_config()
-        if api_key == 'sk-your-deepseek-api-key-here' or not api_key:
-            return jsonify({"error": (
-                "本地 OCR 引擎不可用。\n\n"
-                "请安装 RapidOCR 以支持中文识别：\n"
-                "   pip install rapidocr-onnxruntime\n\n"
-                "然后重启应用即可。"
-            )}), 400
+    # 拼接文字
+    text = "\n".join([line["words"] for line in result["words_result"]])
 
-        # 尝试调用视觉模型（需要 API 支持 vision/image 输入）
-        # 注意: deepseek-chat 不支持图片！这里尝试调用，如果不支持会优雅降级
-        import requests as req_lib
-        resp = req_lib.post(
-            f"{base_url.rstrip('/')}/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": "deepseek-chat",
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:image/png;base64,{img_b64}"}
-                            },
-                            {
-                                "type": "text",
-                                "text": "请完整识别这张图片中的所有文字内容，保持原有的段落结构和格式。只输出识别出的文字，不要添加任何解释或描述。如果图片中没有可识别的文字，输出：[无文字内容]"
-                            }
-                        ]
-                    }
-                ],
-                "temperature": 0.3,
-                "max_tokens": 4096
-            },
-            timeout=60
-        )
-
-        if resp.status_code == 400:
-            # API 不支持图片输入（如 deepseek-chat），直接给出安装指引
-            return jsonify({"error": (
-                "当前 API 不支持图片识别（vision）。\n\n"
-                "要识别中文图片，请安装本地 OCR 引擎：\n"
-                "   pip install rapidocr-onnxruntime\n\n"
-                "安装后重启应用即可。"
-            )}), 400
-
-        resp.raise_for_status()
-        data = resp.json()
-        text = ""
-        if "choices" in data and data["choices"]:
-            text = data["choices"][0].get("message", {}).get("content", "")
-
-        if text and len(text.strip()) > 2 and "[无文字内容]" not in text:
-            db = get_db()
-            db.execute("UPDATE files SET ocr_text = ? WHERE id = ?", (text.strip(), fid))
-            db.commit()
-            return jsonify({"text": text.strip(), "method": "ai-vision", "note": "AI视觉识别"})
-        else:
-            raise Exception("AI模型返回空结果")
-    except Exception as e:
-        err_msg = str(e)
-        print(f"[OCR] Vision API 回退失败: {err_msg}")
-        # 过滤掉不友好的错误信息
-        if "400" in err_msg or "Bad Request" in err_msg or "image" in err_msg.lower():
-            return jsonify({"error": (
-                "本地 OCR 不可用，且当前 AI 模型不支持图片识别。\n\n"
-                "解决方案（选一个）：\n"
-                "1. 安装中文 OCR: pip install rapidocr-onnxruntime\n"
-                "2. 安装 Tesseract-OCR 并勾选中文语言包\n"
-                "3. 切换到支持视觉的 AI 模型（如 gpt-4o）\n\n"
-                "安装后重启应用。"
-            )}), 400
+    if text.strip():
+        db.execute("UPDATE files SET ocr_text = ? WHERE id = ?", (text.strip(), fid))
+        db.commit()
         return jsonify({
-            "error": f"OCR 识别失败。\n\n{err_msg}\n\n"
-                     "建议: pip install rapidocr-onnxruntime 并重启应用"
-        }), 400
+            "text": text.strip(),
+            "method": "baidu_ocr",
+            "note": "百度文字识别"
+        })
+
+    return jsonify({"error": "未识别到文字"}), 400
+
 
 @app.route('/api/files/<fid>/summarize', methods=['POST'])
 def api_file_summarize(fid):
