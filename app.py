@@ -200,8 +200,8 @@ else:
 # ==================== RapidOCR 配置（中英文通用识别） ====================
 _rapid_ocr = None
 try:
-    from rapidocr_onnxruntime import RapidOCR
-    _rapid_ocr = RapidOCR()
+    #from rapidocr_onnxruntime import RapidOCR
+    #_rapid_ocr = RapidOCR()
     print("[OCR] RapidOCR 已就绪（支持中英文混合识别）")
 except Exception as e:
     print(f"[OCR] RapidOCR 不可用: {e}")
