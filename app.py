@@ -1984,9 +1984,9 @@ def _ocr_with_deepseek_vision(filepath, fid):
     db = get_db()
 
     # 读取你在 Railway 填的三个密钥
-    APP_ID = os.getenv("123595386")
-    API_KEY = os.getenv("KbfEyMGsGhKDVEYB0VgHgag1")
-    SECRET_KEY = os.getenv("Pku9T9jyQI7wOUbPm2Ecl40M4uVms7Z0")
+    APP_ID = os.getenv("BAIDU_APPID")
+    API_KEY = os.getenv("BAIDU_APIKEY")
+    SECRET_KEY = os.getenv("BAIDU_SECRET")
 
     if not APP_ID or not API_KEY or not SECRET_KEY:
         return jsonify({"error": "请先在 Railway 配置百度 OCR 密钥"}), 400
