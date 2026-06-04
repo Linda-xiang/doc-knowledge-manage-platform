@@ -13,3 +13,4 @@ xlrd==2.0.1
 reportlab==4.2.5
 numpy==1.26.4
 gunicorn==21.2.0
+baidu-aip==2.2.18.0
