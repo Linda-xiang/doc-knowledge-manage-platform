@@ -170,6 +170,7 @@ import requests
 # ==================== Tesseract OCR 配置 ====================
 # 自动检测 Tesseract 安装路径
 _tesseract_paths = [
+    "/usr/bin/tesseract",  # Railway Linux 路径
     r"C:\Program Files\Tesseract-OCR\tesseract.exe",
     r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
     os.path.expandvars(r"%LOCALAPPDATA%\Tesseract-OCR\tesseract.exe"),
@@ -183,6 +184,7 @@ for _tp in _tesseract_paths:
 
 # 配置 TESSDATA 前缀（语言包目录）
 _TESSDATA_DIRS = [
+    "/usr/share/tesseract-ocr/5/tessdata",  # Railway 语言包路径
     os.path.expandvars(r"%LOCALAPPDATA%\tesseract-ocr\tessdata"),
 ]
 os.environ.setdefault("TESSDATA_PREFIX", _TESSDATA_DIRS[0])
