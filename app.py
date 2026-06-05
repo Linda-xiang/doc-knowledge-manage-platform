@@ -1973,6 +1973,61 @@ def _postprocess_ocr_text(text):
     
     return text
 
+def reconstruct_code_from_ocr(ocr_result):
+    """
+    根据百度OCR返回的坐标信息，重建代码的缩进和换行
+    """
+    if "words_result" not in ocr_result:
+        return ""
+    
+    words = []
+    for item in ocr_result["words_result"]:
+        text = item["words"]
+        # 优先使用 vertexes_location，其次使用 location
+        if "vertexes_location" in item:
+            # vertexes_location 是四个点的列表，取左上角 (x0, y0)
+            loc = item["vertexes_location"][0]
+            x, y = loc["x"], loc["y"]
+        elif "location" in item:
+            loc = item["location"]
+            x, y = loc["left"], loc["top"]
+        else:
+            # 没有坐标信息，降级：直接拼接所有文字（不重建）
+            continue
+        words.append({"text": text, "x": x, "y": y})
+    
+    if not words:
+        # 无坐标信息，回退到简单拼接
+        return "\n".join([item["words"] for item in ocr_result["words_result"]])
+    
+    # 按 y 坐标分组（同一行内的文字，y坐标差值小于10像素）
+    lines = []
+    words_sorted = sorted(words, key=lambda w: (w["y"], w["x"]))
+    current_line = []
+    last_y = None
+    for w in words_sorted:
+        if last_y is None or abs(w["y"] - last_y) <= 10:
+            current_line.append(w)
+        else:
+            if current_line:
+                lines.append(current_line)
+            current_line = [w]
+        last_y = w["y"]
+    if current_line:
+        lines.append(current_line)
+    
+    # 对每一行重建文本，并计算缩进（假设每个空格占8像素）
+    code_lines = []
+    for line in lines:
+        line_sorted = sorted(line, key=lambda w: w["x"])
+        line_text = "".join([w["text"] for w in line_sorted])
+        # 缩进：第一个字符的 x 坐标除以空格宽度
+        min_x = line_sorted[0]["x"]
+        indent_spaces = max(0, min_x // 8)
+        code_lines.append(" " * indent_spaces + line_text)
+    
+    return "\n".join(code_lines)
+    
 
 def _ocr_with_deepseek_vision(filepath, fid):
     """百度在线OCR（免费、稳定、不占内存）"""
@@ -1999,14 +2054,15 @@ def _ocr_with_deepseek_vision(filepath, fid):
     except:
         return jsonify({"error": "图片读取失败"}), 400
 
-    # 调用百度高精度OCR
-    result = client.basicGeneral(image)
+        # 调用百度高精度OCR，开启位置信息
+    options = {"vertexes_location": "true"}  # 获取每个字的坐标
+    result = client.basicGeneral(image, options)
 
     if "words_result" not in result:
         return jsonify({"error": "图片识别失败"}), 400
 
-    # 拼接文字
-    text = "\n".join([line["words"] for line in result["words_result"]])
+        # 使用坐标重建代码格式
+    text = reconstruct_code_from_ocr(result)
 
     if text.strip():
         db.execute("UPDATE files SET ocr_text = ? WHERE id = ?", (text.strip(), fid))
