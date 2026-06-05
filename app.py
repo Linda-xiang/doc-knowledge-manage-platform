@@ -2029,7 +2029,43 @@ def reconstruct_code_from_ocr(ocr_result):
         code_lines.append(" " * indent_spaces + line_text)
     
     return "\n".join(code_lines)
+
+def _is_likely_code(text):
+    """增强判断：是否为真正的代码（而非普通文本/笔记）"""
+    import re
+    if not text.strip():
+        return False
     
+    lines = [l.strip() for l in text.split('\n') if l.strip()]
+    if not lines:
+        return False
+    
+    # 特征1：包含典型的编程关键字（排除常见英文单词）
+    code_keywords = r'\b(def|class|import|from|return|if __name__|for\s+\w+\s+in|while\s+|lambda\s+|yield\s+|raise\s+|assert\s+|try:|except:|finally:|with\s+|as\s+|global\s+|nonlocal\s+|async\s+|await\s+)\b'
+    has_keyword = re.search(code_keywords, text, re.IGNORECASE)
+    
+    # 特征2：包含赋值语句（变量 = 值）
+    has_assignment = re.search(r'\b\w+\s*=\s*[^=]', text)
+    
+    # 特征3：代码特有的符号密度（括号、等号、冒号等）
+    special_chars = sum(1 for c in text if c in '{}[]=<>+-*/%&|^~!@#')
+    total_visible = len(re.sub(r'\s', '', text))
+    symbol_ratio = special_chars / max(total_visible, 1) if total_visible > 0 else 0
+    
+    # 特征4：常见的非代码模式（自然语言、列表、定义等）
+    non_code_patterns = [
+        r'\b(?:What|Why|How|Which|Where|When|Assume|Note|Definition|Example)\b',
+        r'^\s*[-•*]\s+\w',
+        r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){2,}\b',
+        r'\bis\s+linearly\s+separable\b',
+        r'\bassumes that\b',
+    ]
+    has_non_code = any(re.search(p, text, re.IGNORECASE) for p in non_code_patterns)
+    
+    # 决策：有代码特征且没有明显的自然语言特征，才是代码
+    is_code = (has_keyword or has_assignment or symbol_ratio > 0.15) and not has_non_code
+    
+    return is_code
 
 def _ocr_with_deepseek_vision(filepath, fid):
     """百度在线OCR + AI修复代码格式"""
@@ -2063,12 +2099,10 @@ def _ocr_with_deepseek_vision(filepath, fid):
     # 简单拼接文字
     raw_text = "\n".join([line["words"] for line in result["words_result"]])
 
-    # 判断是否为代码（包含常见关键字或符号）
-    import re
-    is_code = bool(re.search(r'\b(def|import|class|if|for|while|return|train_test_split|=\s*\()', raw_text))
+        # 增强判断是否为代码
+    is_code = _is_likely_code(raw_text)
     
     if is_code:
-        # 调用已有的 AI 修复函数（需要确保 DeepSeek API Key 已配置）
         fixed = _ai_fix_code_format(raw_text)
         text = fixed if fixed else raw_text
     else:
