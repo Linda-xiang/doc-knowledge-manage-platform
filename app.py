@@ -2032,7 +2032,7 @@ def reconstruct_code_from_ocr(ocr_result):
 
 
 def _ocr_with_deepseek_vision(filepath, fid):
-    """百度在线OCR + AI修复代码格式"""
+    """百度在线OCR + AI修复（代码专用，普通文本也会原样返回）"""
     import os
     from aip import AipOcr
     from flask import jsonify
@@ -2054,7 +2054,7 @@ def _ocr_with_deepseek_vision(filepath, fid):
     except:
         return jsonify({"error": "图片读取失败"}), 400
 
-    # 调用百度高精度OCR（无需坐标，简单拼接）
+    # 调用百度通用OCR
     result = client.basicGeneral(image)
 
     if "words_result" not in result:
@@ -2063,27 +2063,21 @@ def _ocr_with_deepseek_vision(filepath, fid):
     # 简单拼接文字
     raw_text = "\n".join([line["words"] for line in result["words_result"]])
 
-        # 判断是否为代码（包含常见关键字或符号）
-    import re
-    is_code = bool(re.search(r'\b(def|import|class|if|for|while|return|train_test_split|=\s*\()', raw_text))
-    
-    if is_code:
-        fixed = _ai_fix_code_format(raw_text)
-        text = fixed if fixed else raw_text
-    else:
-        text = raw_text
-        
+    # 无条件调用 AI 修复（修复代码，非代码则原样返回）
+    fixed = _ai_fix_code_format(raw_text)
+    text = fixed if fixed else raw_text
+
     if text.strip():
         db.execute("UPDATE files SET ocr_text = ? WHERE id = ?", (text.strip(), fid))
         db.commit()
         return jsonify({
             "text": text.strip(),
-            "method": "baidu_ocr+ai_fix" if is_code else "baidu_ocr",
-            "note": "百度识别后AI修复（代码专用）" if is_code else "百度文字识别"
+            "method": "baidu_ocr+ai_fix",
+            "note": "百度识别后AI优化"
         })
 
     return jsonify({"error": "未识别到文字"}), 400
-
+    
 
 @app.route('/api/files/<fid>/summarize', methods=['POST'])
 def api_file_summarize(fid):
