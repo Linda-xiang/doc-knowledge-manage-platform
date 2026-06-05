@@ -2032,15 +2032,13 @@ def reconstruct_code_from_ocr(ocr_result):
     
 
 def _ocr_with_deepseek_vision(filepath, fid):
-    """百度在线OCR（免费、稳定、不占内存）"""
+    """百度在线OCR + AI修复代码格式"""
     import os
-    import json
     from aip import AipOcr
     from flask import jsonify
 
     db = get_db()
 
-    # 读取你在 Railway 填的三个密钥
     APP_ID = os.getenv("BAIDU_APPID")
     API_KEY = os.getenv("BAIDU_APIKEY")
     SECRET_KEY = os.getenv("BAIDU_SECRET")
@@ -2056,23 +2054,33 @@ def _ocr_with_deepseek_vision(filepath, fid):
     except:
         return jsonify({"error": "图片读取失败"}), 400
 
-        # 调用百度高精度OCR，开启位置信息
-    options = {"vertexes_location": "true"}  # 获取每个字的坐标
-    result = client.basicGeneral(image, options)
+    # 调用百度高精度OCR（无需坐标，简单拼接）
+    result = client.basicGeneral(image)
 
     if "words_result" not in result:
         return jsonify({"error": "图片识别失败"}), 400
 
-        # 使用坐标重建代码格式
-    text = reconstruct_code_from_ocr(result)
+    # 简单拼接文字
+    raw_text = "\n".join([line["words"] for line in result["words_result"]])
+
+    # 判断是否为代码（包含常见关键字或符号）
+    import re
+    is_code = bool(re.search(r'\b(def|import|class|if|for|while|return|train_test_split|=\s*\()', raw_text))
+    
+    if is_code:
+        # 调用已有的 AI 修复函数（需要确保 DeepSeek API Key 已配置）
+        fixed = _ai_fix_code_format(raw_text)
+        text = fixed if fixed else raw_text
+    else:
+        text = raw_text
 
     if text.strip():
         db.execute("UPDATE files SET ocr_text = ? WHERE id = ?", (text.strip(), fid))
         db.commit()
         return jsonify({
             "text": text.strip(),
-            "method": "baidu_ocr",
-            "note": "百度文字识别"
+            "method": "baidu_ocr+ai_fix" if is_code else "baidu_ocr",
+            "note": "百度识别后AI修复（代码专用）" if is_code else "百度文字识别"
         })
 
     return jsonify({"error": "未识别到文字"}), 400
